@@ -1,10 +1,10 @@
 # VaultEnvSecrets
 
-A small gem to load secrets from [Vault](https://www.vaultproject.io) into environment variables by way of a [consul-template](https://github.com/hashicorp/consul-template) YAML template. Automatic integration with Rails is supported.
+A small gem to load secrets from [Vault](https://www.vaultproject.io) into environment variables by way of a [gomplate](https://gomplate.ca) JSON template. Automatic integration with Rails is supported.
 
 ## Requirements/Assumptions
 
-- By default, a `consul-template` config file needs to be present in `config/vault.hcl` that defines a `template` that will render secrets in a YAML output file to `tmp/vault/secrets.yml`.
+- By default, a `gomplate` template needs to be present in `config/vault_secrets.json.tmpl` that defines a template that will render secrets to JSON output.
 - You must be authenticate to Vault in some fashion outside of this library (eg, `vault login` is used before startup and `~/.vault-token` is present, or `VAULT_TOKEN` is set, etc).
 - For Rails integration, secrets will only be read once on application startup (so to pick up changes in development, you must restart the Rails server).
 
@@ -24,7 +24,7 @@ gem install vault_env_secrets
 
 ## Example Usage
 
-This gem mostly defers to to [`consul-template`](https://github.com/hashicorp/consul-template), with the assumption that there will be a YAML output file that can be read in. There are a variety of ways to use this, but as an example:
+This gem mostly defers to to [`gomplate`](https://gomplate.ca), with the assumption that there will be a JSON output file that can be read in. There are a variety of ways to use this, but as an example:
 
 1. Authenticate against Vault:
 
@@ -32,43 +32,34 @@ This gem mostly defers to to [`consul-template`](https://github.com/hashicorp/co
     vault login
     ```
 
-2. Define a `consul-template` [configuration file](https://github.com/hashicorp/consul-template/blob/main/docs/configuration.md#configuration-file) in the default `config/vault.hcl` location:
+2. Define a `gomplate` [configuration file](https://docs.gomplate.ca/config/) in `.gomplate.yaml` to declare your Vault datasource:
 
     ```hcl
-    vault {
-      address = "https://vault.example.com/"
-      renew_token = true
-
-      retry {
-        enabled = false
-      }
-    }
-
-    template {
-      source = "./config/vault/secrets.yml.ctmpl"
-      destination = "./tmp/vault/secrets.yml"
-      error_on_missing_key = true
-      perms = 0600
-    }
+    datasources:
+      vault:
+        url: "vault://vault.example.com/secret/data"
     ```
 
-3. Define the template that the `config/vault.hcl` config file references (which should be configured to output to `tmp/vault/secrets.yml` by default). In this example the secret key base and database credentials are fetched from a `secret/my-app/<rails_env>/web` item:
+3. Define the template in the default `config/vault_secrets.json.tmpl` location. In this example the secret key base and database credentials are fetched from a `secret/my-app/<rails_env>/web` item:
 
     ```ctmpl
-    {{ $rails_env := (envOrDefault "RAILS_ENV" "development") }}
+    {{ $rails_env := (env.Getenv "RAILS_ENV" "development") }}
+    {{ $secrets := coll.Dict }}
 
-    {{ with secret (printf "secret/my-app/%s/web" $deploy_env) }}
-      {{ scratch.MapSet "secrets" "SECRET_KEY_BASE" .Data.data.secret_key_base }}
-      {{ scratch.MapSet "secrets" "SECRET_DB_HOST" .Data.data.db_host }}
-      {{ scratch.MapSet "secrets" "SECRET_DB_NAME" .Data.data.db_name }}
-      {{ scratch.MapSet "secrets" "SECRET_DB_USERNAME" .Data.data.db_username }}
-      {{ scratch.MapSet "secrets" "SECRET_DB_PASSWORD" .Data.data.db_password }}
+    {{ with (datasource "vault" (printf "my-app/%s/web" $rails_env)).data }}
+      {{ $secrets = coll.Merge $secrets (coll.Dict
+        "SECRET_KEY_BASE" .secret_key_base
+        "SECRET_DB_HOST" .db_host
+        "SECRET_DB_NAME" .db_name
+        "SECRET_DB_USERNAME" .db_username
+        "SECRET_DB_PASSWORD" .db_password
+      )}}
     {{ end }}
 
-    {{ scratch.Get "secrets" | toYAML }}
+    {{ $secrets | data.ToJSON }}
     ```
 
-4. With the gem installed, any variables defined in the output YAML from the `consul-template` template will be set as environment variables on Rails startup. The environment variable names will depend on the names in the YAML output. So in the above example, `ENV["SECRET_KEY_BASE"]`, `ENV["SECRET_DB_HOST"]`, `ENV["SECRET_DB_PASSWORD"]`, etc would all be available to the app.
+4. With the gem installed, any variables defined in the output JSON from the `gomplate` template will be set as environment variables on Rails startup. The environment variable names will depend on the names in the JSON output. So in the above example, `ENV["SECRET_KEY_BASE"]`, `ENV["SECRET_DB_HOST"]`, `ENV["SECRET_DB_PASSWORD"]`, etc would all be available to the app.
 
 ## Configuration
 
@@ -82,20 +73,12 @@ Optionally disable loading VaultEnvSecrets (for example, if this gem only needs 
 VaultEnvSecrets.enabled = false # Defaults to `true`
 ```
 
-#### `VaultEnvSecrets.consul_template_config`
+#### `VaultEnvSecrets.template_path`
 
-Set a custom path to the `consul-template` config file.
-
-```ruby
-VaultEnvSecrets.consul_template_config = "config/my_config.hcl" # Defaults to `config/vault.hcl`
-```
-
-#### `VaultEnvSecrets.consul_template_output`
-
-Set a custom path to the YAML output file generated from the `consul-template` template.
+Set a custom path to the `gomplate` JSON template file.
 
 ```ruby
-VaultEnvSecrets.consul_template_output = "tmp/my_secrets.yml" # Defaults to `tmp/vault/secrets.yml`
+VaultEnvSecrets.template_path = "config/my_secrets.json.tmpl" # Defaults to `config/vault_secrets.json.tmpl`
 ```
 
 ## Development
