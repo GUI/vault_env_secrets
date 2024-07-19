@@ -29,7 +29,7 @@ module VaultEnvSecrets
         # Run gomplate to render any template files.
         output, status = Open3.capture2(env, "gomplate", "--file", path.to_s)
         unless status.success?
-          raise Error.new("vault template gomplate render failed: #{status.to_s}")
+          raise Error.new("vault template gomplate render failed: #{status}")
         end
 
         # Read the output JSON and set any of the variables as environment
