@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    vault_env_secrets (1.0.0)
+    vault_env_secrets (2.0.0)
 
 GEM
   remote: https://rubygems.org/
